@@ -1,0 +1,8 @@
+OneCLI — https://github.com/onecli/onecli
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+Upstream source base: v1.41.0 / fe0981f09122358d4b3c721ef3e141026a2fdc46.
+Octocrew distribution carries exactly upstream refresh fix
+f8179ac80e003dacd16a0e4dfee2f0db330211bb (#434) in
+apps/gateway/src/secret_inject.rs; this notice records that modified file.
+No other Rust source or Cargo.lock changes. Image packaging/workflow by Octocrew.
+Original upstream copyright and attribution notices are retained.

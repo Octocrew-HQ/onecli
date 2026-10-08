@@ -1,0 +1,78 @@
+name: Octocrew refresh image
+on:
+  push:
+    branches: [octocrew/1.41.0-refresh]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: octocrew-refresh-image
+  cancel-in-progress: false
+jobs:
+  gateway:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: apps/gateway
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.94.0
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/gateway
+      - name: Format
+        run: cargo fmt --check
+      - name: Tests (locked OSS)
+        run: cargo test --locked
+      - name: Clippy (locked OSS)
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Lockfile unchanged
+        run: git diff --exit-code -- Cargo.lock
+  image:
+    needs: gateway
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify sole Rust change and base
+        run: python3 docker/octocrew/verify-source.py
+      - name: Verify actual base gateway path without starting services
+        run: docker run --rm --platform linux/amd64 --entrypoint /bin/sh ghcr.io/onecli/onecli@sha256:66dc84042310cab762ed3b1f71a98349a72aa132ad44651b7ae76c371aaafe6b -c 'test -x /usr/local/bin/onecli-gateway'
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build Alpine/musl gateway and publish (amd64 only)
+        id: publish
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/octocrew/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/octocrew-hq/onecli:1.41.0-octocrew.refresh1
+          provenance: mode=max
+          sbom: true
+          labels: |
+            org.opencontainers.image.source=https://github.com/Octocrew-HQ/onecli
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=1.41.0-octocrew.refresh1
+            org.opencontainers.image.licenses=Apache-2.0
+            org.opencontainers.image.base.name=ghcr.io/onecli/onecli:1.41.0
+            org.opencontainers.image.base.digest=sha256:66dc84042310cab762ed3b1f71a98349a72aa132ad44651b7ae76c371aaafe6b
+            io.octocrew.upstream.sha=fe0981f09122358d4b3c721ef3e141026a2fdc46
+            io.octocrew.patch.sha=f8179ac80e003dacd16a0e4dfee2f0db330211bb
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Registry digest readback
+        env:
+          EXPECTED_DIGEST: ${{ steps.publish.outputs.digest }}
+        run: python3 docker/octocrew/readback.py
